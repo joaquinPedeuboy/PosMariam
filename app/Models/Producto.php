@@ -41,4 +41,9 @@ class Producto extends Model
         return $this->hasOne(Oferta::class);
     }
     
+    public function scopeDisponibles($query)
+    {
+        return $query->where('disponible', true);
+    }
+
 }

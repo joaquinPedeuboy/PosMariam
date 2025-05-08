@@ -30,15 +30,8 @@ class ProductoRequest extends FormRequest
             'vencimientos.*.fecha_vencimiento' => 'required|date_format:Y-m', // Validación YYYY-MM
             'vencimientos.*.cantidad' => 'required|integer|min:0',
             'oferta' => 'nullable|array',
-            'oferta.*.cantidad' => 'nullable|integer|min:0', 
-            'oferta.*.precio_oferta' => [
-                'nullable','numeric', 'min:0',
-                function ($attribute, $value, $fail) {
-                    if (request()->precio && $value >= request()->precio) {
-                        $fail('El precio de oferta no puede ser igual o mayor al precio del producto.');
-                    }
-                }
-            ],
+            'oferta.cantidad' => 'nullable|integer|min:0', 
+            'oferta.precio_oferta' => 'nullable|numeric|min:0',
 
         ];
     }
@@ -58,7 +51,7 @@ class ProductoRequest extends FormRequest
             'vencimientos.*.cantidad.integer' => 'La cantidad debe ser un número entero.',
             'vencimientos.*.cantidad.min' => 'La cantidad no puede ser negativa.',
 
-            'oferta.*.precio_oferta.min' => 'El precio de oferta no puede ser negativo.',
+            'oferta.precio_oferta.min' => 'El precio de oferta no puede ser negativo.',
         ];
     }
 }
