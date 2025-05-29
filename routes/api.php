@@ -21,6 +21,7 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::get('/productos/{producto}/oferta', [ProductoController::class, 'verOferta']);
     Route::post('/productos/{producto}/toggle-disponibilidad', [ProductoController::class, 'toggleDisponibilidad']);
     Route::get('/productos/buscar/{codigo}', [ProductoController::class, 'buscarPorCodigo']);
+    Route::get('pos/productos', [ProductoController::class, 'indexPos']);
     Route::apiResource('/productos', ProductoController::class);
 
     // Departamentos

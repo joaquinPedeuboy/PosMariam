@@ -6,6 +6,7 @@ use Exception;
 use App\Models\Imagen;
 use App\Models\Oferta;
 use App\Models\Producto;
+use App\Models\ProductoPos;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -267,6 +268,24 @@ class ProductoController extends Controller
         return response()->json($producto);
     }
 
+    public function indexPos(Request $req)
+    {
+        $q     = $req->input('busqueda');
+        $query = ProductoPos::select([
+            'id','nombre','codigo_barras',
+            'precio','stock_total','precio_oferta','stock_oferta'
+        ]);
+
+        if ($q) {
+            $query->where('nombre', 'LIKE', "%{$q}%")
+                ->orWhere('codigo_barras', $q);
+        }
+
+        // Limita a 50 resultados para autocompletar
+        $productos = $query->orderBy('nombre')->limit(50)->get();
+
+        return response()->json($productos);
+    }
 
 
 }
