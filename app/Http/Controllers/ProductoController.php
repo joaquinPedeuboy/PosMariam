@@ -30,13 +30,38 @@ class ProductoController extends Controller
         }
 
         if ($request->query('oferta')) {
-            $productos = Producto::with('ofertas')->whereHas('ofertas')->get();
-            return response()->json(['data' => $productos]);
+            $perPage = $request->input('per_page', 30);
+            $query = Producto::with('ofertas');
+            $query->whereHas('ofertas');
+            // Paginación
+            $productos = $query->paginate($perPage);
+
+            // Devuelvo la colección con data + meta
+            return new ProductoCollection($productos);
         }
 
         if ($request->query('vencimientos')) {
-            $productos = Producto::with('vencimientos')->whereHas('vencimientos')->get();
-            return response()->json(['data' => $productos]);
+            $perPage = $request->input('per_page', 100);
+            $mes     = $request->input('mes');   // leo el filtro de mes (p. ej. "2025-08")
+
+            // Inicio el query cargando la relación
+            $query = Producto::with('vencimientos');
+
+            // Si el front mandó &mes=XXXX, filtro solo los que tengan ese vencimiento
+            if ($mes) {
+                $query->whereHas('vencimientos', function($q) use ($mes) {
+                    $q->where('fecha_vencimiento', $mes);
+                });
+            } else {
+                // Si no hay mes, al menos aseguro que tenga algún vencimiento
+                $query->whereHas('vencimientos');
+            }
+
+            // Paginación
+            $productos = $query->paginate($perPage);
+
+            // Devuelvo la colección con data + meta
+            return new ProductoCollection($productos);
         }
 
         // Obtenemos los parámetros de búsqueda: nombre o código de barras
@@ -259,7 +284,8 @@ class ProductoController extends Controller
     // Busqueda por codigo de barras
     public function buscarPorCodigo($codigo)
     {
-        $producto = Producto::with('vencimientos', 'ofertas')->where('codigo_barras', $codigo)->first();
+        // $producto = Producto::with('vencimientos', 'ofertas')->where('codigo_barras', $codigo)->first();
+        $producto = ProductoPos::where('codigo_barras', $codigo)->first();
 
         if (!$producto) {
             return response()->json(['mensaje' => 'Producto no encontrado'], 404);
@@ -268,23 +294,22 @@ class ProductoController extends Controller
         return response()->json($producto);
     }
 
-    public function indexPos(Request $req)
+    public function indexPos($codigo)
     {
-        $q     = $req->input('busqueda');
-        $query = ProductoPos::select([
-            'id','nombre','codigo_barras',
-            'precio','stock_total','precio_oferta','stock_oferta'
-        ]);
+        $producto = Producto::with([
+            'vencimientos' => function($q) {
+                $q->orderBy('fecha_vencimiento');
+            },
+            'ofertas'
+        ])
+            ->where("codigo_barras", $codigo)
+            ->first();
 
-        if ($q) {
-            $query->where('nombre', 'LIKE', "%{$q}%")
-                ->orWhere('codigo_barras', $q);
+        if (! $producto) {
+        return response()->json(["mensaje" => "Producto no encontrado"], 404);
         }
 
-        // Limita a 50 resultados para autocompletar
-        $productos = $query->orderBy('nombre')->limit(50)->get();
-
-        return response()->json($productos);
+        return response()->json($producto);
     }
 
 
