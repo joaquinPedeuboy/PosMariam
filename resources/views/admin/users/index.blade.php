@@ -15,20 +15,12 @@
                     </div>
             @endif
 
-        </div>
-        <a href="{{ route('admin.users.create') }}">Crear Usuario</a>
+            <a href="{{ route('admin.users.create') }}" class="bg-green-500 text-white px-4 py-3 rounded-lg text-xs font-bold uppercase text-center hover:bg-green-700">>
+                Crear Nuevo Administrador
+            </a>
 
-        <ul>
-            @foreach($users as $user)
-                <li>{{ $user->name }} ({{ $user->email }}) - 
-                    <a href="{{ route('admin.users.edit', $user) }}">Editar</a> | 
-                    <form method="POST" action="{{ route('admin.users.destroy', $user) }}" style="display:inline">
-                        @csrf @method('DELETE')
-                        <button onclick="return confirm('¿Eliminar usuario?')">Eliminar</button>
-                    </form>
-                </li>
-            @endforeach
-        </ul>
+            <livewire:mostrar-administradores />
+        </div>
     </div>
 
     

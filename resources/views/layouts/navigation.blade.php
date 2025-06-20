@@ -5,9 +5,16 @@
             <div class="flex">
                 <!-- Logo -->
                 <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}">
-                        <x-application-logo />
-                    </a>
+                    @admin
+                        <a href="{{ route('admin.dashboard') }}">
+                            <x-application-logo />
+                        </a>
+                    @endadmin
+                    @user
+                        <a href="{{ route('dashboard') }}">
+                            <x-application-logo />
+                        </a>
+                    @enduser
                 </div>
 
                 <!-- Navigation Links -->
