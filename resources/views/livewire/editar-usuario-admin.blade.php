@@ -39,7 +39,7 @@
     <div x-data="{ show: false }" class="mt-4 relative min-h-[100px]">
         <x-input-label for="password" :value="__('Password')" />
         <x-text-input id="password" class="block mt-1 w-full pr-10" wire:model.live="password" x-bind:type="show ? 'text' : 'password'" name="password" placeholder="Nueva Password" />
-        <button type="button" @click="show = !show" class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center text-sm text-gray-500">>
+        <button type="button" @click="show = !show" class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center text-sm text-gray-500">
             <svg x-show="!show" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-.422 1.54-1.16 2.946-2.145 4.12M15 15l5 5" />
@@ -58,7 +58,7 @@
     <div x-data="{ show: false }" class="mt-4 relative min-h-[100px]">
         <x-input-label for="password_confirmation" :value="__('Repetir Password')" />
         <x-text-input id="password_confirmation" class="block mt-1 w-full pr-10" wire:model.live="password_confirmation" x-bind:type="show ? 'text' : 'password'" name="password_confirmation" placeholder="Repetir Password" />
-        <button type="button" @click="show = !show" class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center text-sm text-gray-500">>
+        <button type="button" @click="show = !show" class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center text-sm text-gray-500">
             <svg x-show="!show" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-.422 1.54-1.16 2.946-2.145 4.12M15 15l5 5" />

@@ -11,8 +11,7 @@ class UserController extends Controller
     //Controlador para Admins
     public function index()
     {
-        $users = User::all();
-        return view('admin.users.index', compact('users'));
+        return view('admin.users.index');
     }
 
     public function create()
@@ -65,11 +64,5 @@ class UserController extends Controller
         ]);
 
         return redirect()->route('admin.users.index')->with('success', 'Usuario actualizado');
-    }
-
-    public function destroy(User $user)
-    {
-        $user->delete();
-        return back()->with('success', 'Usuario eliminado');
     }
 }

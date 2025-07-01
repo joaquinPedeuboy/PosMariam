@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Models\User;
 use Livewire\Component;
+use Livewire\Attributes\On;
 use Livewire\WithPagination;
 
 class MostrarAdministradores extends Component
@@ -11,18 +12,19 @@ class MostrarAdministradores extends Component
 
     use WithPagination;
 
-    public function eliminar($id)
+    #[On('eliminarAdministrador')]
+    public function eliminarAdministrador($userId)
     {
+        $id = (int) $userId;
         // Evitar que se elimine a sí mismo
         if (auth()->id() === $id) {
             session()->flash('mensaje', 'No puedes eliminar tu propio usuario.');
             return;
         }
 
-        $user = User::findOrFail($id);
+        // Buscar solo administradores
+        $user = User::where('id', $id)->where('admin', true)->firstOrFail();
         $user->delete();
-
-        session()->flash('mensaje', 'Administrador eliminado correctamente');
     }
     
     public function render()

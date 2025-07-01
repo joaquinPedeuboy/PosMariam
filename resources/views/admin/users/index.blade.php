@@ -15,7 +15,7 @@
                     </div>
             @endif
 
-            <a href="{{ route('admin.users.create') }}" class="bg-green-500 text-white px-4 py-3 rounded-lg text-xs font-bold uppercase text-center hover:bg-green-700">>
+            <a href="{{ route('admin.users.create') }}" class="bg-green-500 text-white px-4 py-3 rounded-lg text-xs font-bold uppercase text-center hover:bg-green-700">
                 Crear Nuevo Administrador
             </a>
 
