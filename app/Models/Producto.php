@@ -8,7 +8,6 @@ use App\Models\Oferta;
 use App\Models\Departamento;
 use App\Models\ProductoVencimiento;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Producto extends Model
@@ -16,7 +15,7 @@ class Producto extends Model
     use HasFactory;
     
     // Define los campos que pueden asignarse masivamente
-    protected $fillable = ['nombre', 'precio', 'codigo_barras', 'departamento_id', 'disponible'];
+    protected $fillable = ['nombre', 'precio', 'codigo_barras', 'departamento_id',];
 
     protected function serializeDate(\DateTimeInterface $date)
     {
@@ -41,22 +40,10 @@ class Producto extends Model
     public function ofertas() {
         return $this->hasOne(Oferta::class);
     }
-
-    // Funcion que suma el total del stock de un producto
-    public function stockTotal(): Attribute
-    {
-        return Attribute::get(function () {
-            $vencimientos = $this->vencimientos->sum('cantidad');
-            $oferta = $this->oferta?->cantidad ?? 0;
-
-            return $vencimientos + $oferta;
-        });
-    }
-
-    // Relacion que trae el vencimiento mas cercano del producto
-    public function getVencimientoProximoAttribute()
-    {
-        return $this->vencimientos->sortBy('fecha_vencimiento')->first();
-    }
     
+    public function scopeDisponibles($query)
+    {
+        return $query->where('disponible', true);
+    }
+
 }

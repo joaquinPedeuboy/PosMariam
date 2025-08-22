@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use Carbon\Carbon;
 use App\Models\Venta;
+use App\Models\Oferta;
 use App\Models\Producto;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Models\ProductoVencimiento;
 use App\Http\Resources\VentaCollection;
 
 class VentaController extends Controller
@@ -39,78 +41,145 @@ class VentaController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    // Metodo de venta con vencimientos
+    // Método de venta con vencimientos y/o oferta
     public function store(Request $request)
     {
+        DB::beginTransaction();
         try {
-            // validar la solicitud
+            // 🔹 Validar la solicitud
             $request->validate([
                 'total' => 'required|numeric',
                 'productos' => 'required|array',
                 'productos.*.id' => 'required|exists:productos,id',
-                'productos.*.vencimientos' => 'required|array',
-                'productos.*.vencimientos.*.cantidad' => 'required|integer|min:1',
+                'productos.*.cantidad' => 'required|integer|min:1',
+                'productos.*.usar_oferta' => 'sometimes|boolean', // Opcional
             ]);
-
-            // Verificar si hay suficiente stock para todos los productos
+    
+            $productosConStockInsuficiente = [];
+            $vencimientosAEliminar = [];
+            $ofertasAEliminar     = [];
+    
+            // 🔹 Verificar stock antes de registrar la venta
             foreach ($request->productos as $productoVendido) {
                 $producto = Producto::findOrFail($productoVendido['id']);
-                $cantidadNecesaria = $productoVendido['vencimientos'][0]['cantidad'];
-                $stockTotal = $producto->vencimientos()->sum('cantidad');
+                $cantidadOferta = $productoVendido['cantidad_oferta'];
+                $cantidadVencimientos = $productoVendido['cantidad_vencimientos'];
+                $usarOferta = $productoVendido['usar_oferta'] ?? false;
 
-                if ($stockTotal < $cantidadNecesaria) {
-                    return response()->json([
-                        'error' => "Stock insuficiente para el producto {$producto->nombre}."
-                    ], 400);
+                // Obtener las cantidades disponibles
+                $stockOferta = $producto->ofertas ? $producto->ofertas->cantidad : 0; // Stock de la oferta
+                $stockVencimientos = $producto->vencimientos()->sum('cantidad'); // Stock de vencimientos
+
+                // Verificar stock suficiente para la oferta
+                if ($usarOferta && $cantidadOferta > 0 && $stockOferta < $cantidadOferta) {
+                    $productosConStockInsuficiente[] = $producto->nombre . " (Oferta)";
+                }
+
+                // Verificar stock suficiente para los vencimientos
+                if (!$usarOferta && $cantidadVencimientos > 0 && $stockVencimientos < $cantidadVencimientos) {
+                    $productosConStockInsuficiente[] = $producto->nombre . " (Vencimientos)";
                 }
             }
-
-            // Registrar la venta
+    
+            // Si hay productos con stock insuficiente, retornar error
+            if (!empty($productosConStockInsuficiente)) {
+                return response()->json([
+                    'error' => "Stock insuficiente para los siguientes productos:",
+                    'productos' => $productosConStockInsuficiente
+                ], 400);
+            }
+    
+            // 🔹 Registrar la venta
             $venta = Venta::create([
                 'total' => $request->total
             ]);
-
-            // Procesar cada producto vendido
+    
+            // 🔹 Procesar cada producto vendido
             foreach ($request->productos as $productoVendido) {
-                $producto = Producto::findOrFail($productoVendido['id']);
-                $cantidadNecesaria = $productoVendido['vencimientos'][0]['cantidad'];
+                $producto = Producto::with('ofertas', 'vencimientos')->findOrFail($productoVendido['id']);
+                $cantidadTotal = $productoVendido['cantidad'];
+                $usarOferta = $productoVendido['usar_oferta'] ?? false;
+    
+                $cantidadOferta = 0;
+                $cantidadVencimientos = $cantidadTotal;
+    
+                // 🔹 Descontar de la oferta si aplica
+                if ($usarOferta && $producto->ofertas && $producto->ofertas->cantidad > 0) {
+                    // Verificar si hay suficiente stock de la oferta
+                    $cantidadOferta = min($cantidadTotal, $producto->ofertas->cantidad);
+                    
+                    if ($cantidadOferta > 0) {
+                        // Descontar el stock de la oferta
+                        $producto->ofertas->cantidad -= $cantidadOferta;
+                        $producto->ofertas->save();
 
-                // Obtener vencimientos ordenados
-                $vencimientos = $producto->vencimientos()->orderBy('fecha_vencimiento')->get();
-                $cantidadRestante = $cantidadNecesaria;
+                        if ($producto->ofertas->cantidad <= 0) {
+                            $ofertasAEliminar[] = $producto->ofertas->id;
+                        }
 
-                foreach ($vencimientos as $vencimiento) {
-                    if ($cantidadRestante <= 0) break;
+                        // Registrar los productos vendidos con la oferta
+                        $venta->productos()->attach($producto->id, [
+                            'cantidad' => $cantidadOferta,
+                            'nombre_producto' => $producto->nombre,
+                            'precio_unitario' => $producto->ofertas->precio_oferta,
+                            'subtotal' => $producto->ofertas->precio_oferta * $cantidadOferta,
+                            'vencimiento_id' => null,
+                        ]);
+                    }
 
-                    $aDescontar = min($cantidadRestante, $vencimiento->cantidad);
-                    $vencimiento->cantidad -= $aDescontar;
-                    $vencimiento->save();
-                    $vencimiento->refresh(); // Asegura que el objeto refleje los cambios en BD
-                    $cantidadRestante -= $aDescontar;
+                    // Calcular la cantidad restante a descontar del stock normal
+                    $cantidadRestante = $cantidadTotal - $cantidadOferta;
+                    } else {
+                        // Si no se usa la oferta, toda la cantidad se vende como producto normal
+                        $cantidadRestante = $cantidadTotal;
+                    }
 
-                    // Guardar en venta_productos
-                    $venta->productos()->attach($producto->id, [
-                        'cantidad' => $aDescontar,
-                        'vencimiento_id' => $vencimiento->id,
-                        'nombre_producto' => $producto->nombre,
-                        'precio_unitario' => $producto->precio,
-                        'subtotal' => $producto->precio * $aDescontar,
-                    ]);
-                }
+                    // 🔹 Descontar de los vencimientos si hay stock restante
+                    if ($cantidadRestante > 0) {
+                        $vencimientos = $producto->vencimientos()->orderBy('fecha_vencimiento')->get();
+                        $cantidadRestanteVencimientos = $cantidadRestante;
+
+                        foreach ($vencimientos as $vencimiento) {
+                            if ($cantidadRestanteVencimientos <= 0) break;
+
+                            $aDescontar = min($cantidadRestanteVencimientos, $vencimiento->cantidad);
+                            $vencimiento->cantidad -= $aDescontar;
+                            $vencimiento->save();
+
+                            if ($vencimiento->cantidad <= 0) {
+                                $vencimientosAEliminar[] = $vencimiento->id;
+                            }
+
+                            $venta->productos()->attach($producto->id, [
+                                'cantidad' => $aDescontar,
+                                'nombre_producto' => $producto->nombre,
+                                'precio_unitario' => $producto->precio,
+                                'subtotal' => $producto->precio * $aDescontar,
+                                'vencimiento_id' => $vencimiento->id,
+                            ]);
+                            $cantidadRestanteVencimientos -= $aDescontar;
+                        }
+                    }
             }
+            ProductoVencimiento::destroy($vencimientosAEliminar);
+            Oferta::destroy($ofertasAEliminar);
 
+            DB::commit();
             return response()->json([
                 'message' => 'Venta registrada correctamente',
                 'venta' => $venta->load('productos'),
             ], 201);
-
+    
         } catch (\Throwable $th) {
+            DB::rollBack();
             return response()->json([
                 'error' => 'Error de venta',
                 'details' => $th->getMessage()
             ], 500);
         }
     }
+    
+
 
     /**
      * Display the specified resource.

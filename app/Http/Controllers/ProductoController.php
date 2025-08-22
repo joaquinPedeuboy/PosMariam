@@ -8,6 +8,7 @@ use App\Models\Oferta;
 use App\Models\Producto;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use App\Models\ProductoVencimiento;
 use App\Http\Requests\ProductoRequest;
 use Illuminate\Support\Facades\Storage;
@@ -23,15 +24,72 @@ class ProductoController extends Controller
     {
          // Verifica si se solicita sin paginación
         if ($request->query('all')) {
-            $productos = Producto::with('vencimientos')->get(); // Devuelve todos los productos sin paginación
+            $productos = Producto::with('vencimientos', 'ofertas')->get();
             return response()->json(['data' => $productos]);
+        }
+
+        if ($request->query('oferta')) {
+            $perPage = $request->input('per_page', 30);
+            $query = Producto::with('ofertas');
+            $query->whereHas('ofertas');
+            // Paginación
+            $productos = $query->paginate($perPage);
+
+            // Devuelvo la colección con data + meta
+            return new ProductoCollection($productos);
+        }
+
+        if ($request->query('vencimientos')) {
+            $perPage = $request->input('per_page', 100);
+            $mesFull = $request->input('mes');         // formato esperado: "2025-08" (YYYY-MM)
+            $anio = $request->input('anio');          // formato: "2025"
+            $mesSolo = $request->input('mes_sin_anio'); // formato: "08"
+
+            // Inicio query con relación
+            $query = Producto::with('vencimientos');
+
+            // Aplicar filtros sobre la relación vencimientos
+            if ($mesFull || $anio || $mesSolo) {
+                $query->whereHas('vencimientos', function($q) use ($mesFull, $anio, $mesSolo) {
+                    // 1) Filtrar por YYYY-MM exacto
+                    if ($mesFull) {
+                        // Si tu campo es exactamente "YYYY-MM" esto sirve:
+                        $q->where('fecha_vencimiento', $mesFull);
+                        return;
+                    }
+
+                    // 2) Filtrar por año completo (YYYY-*)
+                    if ($anio) {
+                        // si fecha_vencimiento está guardada como "YYYY-MM", usar like
+                        $q->where('fecha_vencimiento', 'like', "$anio-%");
+                        return;
+                    }
+
+                    // 3) Filtrar por mes sin importar el año (MM)
+                    if ($mesSolo) {
+                        // Usamos SUBSTR para sacar los 2 chars del mes; funciona en MySQL
+                        // Esto evita falsos matches y es más explícito que un %-$mesSolo
+                        $q->whereRaw('SUBSTR(fecha_vencimiento, 6, 2) = ?', [$mesSolo]);
+                        return;
+                    }
+                });
+            } else {
+                // Si no viene ningún filtro, al menos aseguro que tenga algún vencimiento
+                $query->whereHas('vencimientos');
+            }
+
+            // Paginación
+            $productos = $query->paginate($perPage);
+
+            // Devuelvo la colección con data + meta
+            return new ProductoCollection($productos);
         }
 
         // Obtenemos los parámetros de búsqueda: nombre o código de barras
         $busqueda = $request->input('busqueda');
         
         // Creamos la consulta base para los productos
-        $productosQuery = Producto::with('vencimientos'); 
+        $productosQuery = Producto::with('vencimientos', 'ofertas'); 
 
         // Filtramos por nombre o código de barras si el parámetro existe
         if ($busqueda) {
@@ -58,37 +116,53 @@ class ProductoController extends Controller
      */
     public function store(ProductoRequest $request)
     {
-        // Crear el producto
-        $producto = Producto::create($request->validated());
+        DB::beginTransaction();
+        try {
+            // Crear el producto
+            $producto = Producto::create($request->validated());
 
-        // Si el producto tiene un departamento, actualizar los precios de todos los productos de ese departamento
-        if ($producto->departamento_id) {
-            Producto::where('departamento_id', $producto->departamento_id)
-                ->update(['precio' => $producto->precio]);  // Actualiza el precio de todos los productos del mismo departamento
-        }
+            // Si el producto tiene un departamento, actualizar los precios de todos los productos de ese departamento
+            if ($producto->departamento_id) {
+                Producto::where('departamento_id', $producto->departamento_id)
+                    ->update(['precio' => $producto->precio]);  // Actualiza el precio de todos los productos del mismo departamento
+            }
 
-        foreach ($request->input('vencimientos') as $vencimiento) {
-            ProductoVencimiento::create([
-                'producto_id' => $producto->id,
-                'fecha_vencimiento' => $vencimiento['fecha_vencimiento'],
-                'cantidad' => $vencimiento['cantidad'],
+            foreach ($request->input('vencimientos', []) as $vencimiento) {
+                ProductoVencimiento::updateOrCreate(
+                    [
+                        'producto_id' => $producto->id,
+                        'fecha_vencimiento' => $vencimiento['fecha_vencimiento'],
+                    ],
+                    ['cantidad' => $vencimiento['cantidad']]
+                );
+            }
+
+            if ($request->filled('oferta.precioOferta') && $request->filled('oferta.cantidadOferta')) {
+                Oferta::updateOrCreate(
+                    ['producto_id' => $producto->id],
+                    [
+                        'precio_oferta' => $request->input('oferta.precioOferta'),
+                        'cantidad' => $request->input('oferta.cantidadOferta')
+                    ]
+                );
+            } else {
+                // Si no hay valores válidos, eliminar la oferta si existe
+                Oferta::where('producto_id', $producto->id)->delete();
+            }   
+
+            DB::commit();
+            return response()->json([
+                'producto' => $producto->loadMissing('vencimientos', 'ofertas'),
+                'message' => 'Producto creado con éxito',
             ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al actualizar el producto',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-         // Guardar ofertas
-        // foreach ($request->input('ofertas', []) as $oferta) {
-        //     Oferta::create([
-        //         'producto_id' => $producto->id,
-        //         'precio_oferta' => $oferta['precio_oferta'],
-        //         'cantidad' => $oferta['cantidad'],
-        //     ]);
-        // }
-
-        return response()->json([
-            'producto' => $producto->load('vencimientos'),
-            'message' => 'Producto creado con éxito',
-            
-        ]);
+        
     }
 
     /**
@@ -98,7 +172,7 @@ class ProductoController extends Controller
     {
         // Cargar los vencimientos relacionados con el producto
         return response()->json([
-            'producto' => $producto->load('vencimientos'),
+            'producto' => Producto::with('vencimientos', 'ofertas')->findOrFail($producto->id),
             'stock_total' => $producto->stock_total,
         ]);
     }
@@ -108,6 +182,7 @@ class ProductoController extends Controller
      */
     public function update(UpdateProductoRequest $request, Producto $producto)
     {
+        DB::beginTransaction();
         // Actualizar datos del producto
         try {
              // Obtener los datos validados del request
@@ -127,19 +202,28 @@ class ProductoController extends Controller
                         'producto_id' => $producto->id,
                         'fecha_vencimiento' => $vencimiento['fecha_vencimiento'],
                     ],
-                    [
-                        'cantidad' => $vencimiento['cantidad'],
-                    ]
+                    ['cantidad' => $vencimiento['cantidad']]
                 );
             }
 
+            // Eliminar vencimientos no incluidos en la actualización
+            $producto->vencimientos()
+            ->whereNotIn('fecha_vencimiento', collect($request->input('vencimientos', []))->pluck('fecha_vencimiento'))
+            ->delete();
+
             // Actualizar ofertas
-            // foreach ($request->input('ofertas', []) as $oferta) {
-            //     Oferta::updateOrCreate(
-            //         ['producto_id' => $producto->id, 'precio_oferta' => $oferta['precio_oferta']],
-            //         ['cantidad' => $oferta['cantidad']]
-            //     );
-            // }
+            if ($request->filled('oferta.precioOferta') && $request->filled('oferta.cantidadOferta')) {
+                Oferta::updateOrCreate(
+                    ['producto_id' => $producto->id],
+                    [
+                        'precio_oferta' => $request->input('oferta.precioOferta'),
+                        'cantidad' => $request->input('oferta.cantidadOferta')
+                    ]
+                );
+            } else {
+                // Si no hay valores válidos, eliminar la oferta si existe
+                Oferta::where('producto_id', $producto->id)->delete();
+            }         
 
 
             // Si se actualiza el precio, modificamos todos los productos del mismo departamento
@@ -148,12 +232,14 @@ class ProductoController extends Controller
                     ->update(['precio' => $validated['precio']]);
             }            
 
+            DB::commit();
             return response()->json([
                 'message' => 'Producto y vencimientos actualizados correctamente',
-                'producto' => $producto->load('vencimientos'),
+                'producto' => $producto->loadMissing('vencimientos', 'ofertas'),
             ], 200);
 
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'message' => 'Error al actualizar el producto',
                 'error' => $e->getMessage(),
@@ -179,16 +265,73 @@ class ProductoController extends Controller
         return response()->json($producto->vencimientos);
     }
 
-    // public function verOferta(Producto $producto)
-    // {
-    //     // Verifica si el producto tiene una oferta asociada
-    //     $oferta = $producto->ofertas()->first(); // Buscar la primera oferta activa
+    public function verOferta(Producto $producto)
+    {
+        return response()->json([
+            'ofertas' => $producto->ofertas ?? null
+        ], 200);
+    }
 
-    //     if ($oferta) {
-    //         return response()->json(['oferta' => $oferta], 200); // Si tiene una oferta, devolverla
-    //     }
+    public function toggleDisponibilidad(Producto $producto)
+    {
+        $producto->disponible = !$producto->disponible;
+        $producto->save();
 
-    //     return response()->json(['mensaje' => 'El producto no tiene una oferta disponible'], 404); // Si no tiene oferta
-    // }
+        return response()->json([
+            'success'    => true,
+            'disponible' => $producto->disponible,
+        ]);
+    }
+
+    public function indexPublic(Request $request)
+    {
+        $busqueda = $request->input('busqueda');
+
+        $productosQuery = Producto::disponibles()->with('vencimientos', 'ofertas');
+        
+        if ($busqueda) {
+            $productosQuery->where(function($query) use ($busqueda) {
+                $query->where('nombre', 'like', '%' . $busqueda . '%')
+                    ->orWhere('codigo_barras', 'like', '%' . $busqueda . '%');
+            });
+        }
+
+        $perPage = $request->input('per_page', 30);
+        $productos = $productosQuery->paginate($perPage);
+
+        return new ProductoCollection($productos);
+    }
+
+    // Busqueda por codigo de barras
+    public function buscarPorCodigo($codigo)
+    {
+        $producto = Producto::with('vencimientos', 'ofertas')->where('codigo_barras', $codigo)->first();
+
+        if (!$producto) {
+            return response()->json(['mensaje' => 'Producto no encontrado'], 404);
+        }
+
+        return response()->json($producto);
+    }
+    
+    public function indexPos($codigo)
+    {
+        $producto = Producto::with([
+            'vencimientos' => function($q) {
+                $q->orderBy('fecha_vencimiento');
+            },
+            'ofertas'
+        ])
+            ->where("codigo_barras", $codigo)
+            ->first();
+
+        if (! $producto) {
+        return response()->json(["mensaje" => "Producto no encontrado"], 404);
+        }
+
+        return response()->json($producto);
+    }
+
+
 
 }

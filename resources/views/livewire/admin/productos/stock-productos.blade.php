@@ -2,6 +2,7 @@
     <livewire:admin.productos.filtrarProductos
     event-name="terminosBusqueda"
     :show-termino="true"
+    :show-stock-order="true"
     />
 
     <div class="bg-white p-4 rounded shadow mt-10">
