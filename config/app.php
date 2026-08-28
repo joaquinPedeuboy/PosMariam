@@ -123,4 +123,6 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'storefront_url' => env('STOREFRONT_URL', 'http://localhost:4321'),
+
 ];

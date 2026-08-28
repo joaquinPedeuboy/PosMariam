@@ -1,0 +1,13 @@
+[90m= [39m[
+    "[34mid[39m" => [35m20[39m,
+    "[34mnumero[39m" => "[32mORD-R0WHRNXI[39m",
+    "[34mestado[39m" => [34;4mApp\Enums\OrderStatus[39;24m {#6214
+      +[1mname[22m: "[32mPagado[39m",
+      +[1mvalue[22m: "[32mpagado[39m",
+    },
+    "[34mmercado_pago_payment_id[39m" => "[32m172536072631[39m",
+    "[34mpagado_at[39m" => [34;4mIlluminate\Support\Carbon @1786571785[39;24m {#6198
+      [34mdate[39m: [36m2026-08-12 21:56:25.0 UTC (+00:00)[39m,
+    },
+  ]
+

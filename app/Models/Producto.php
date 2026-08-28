@@ -24,7 +24,16 @@ class Producto extends Model
 
     public function ventas()
     {
-        return $this->belongsToMany(Venta::class, 'venta_productos')->withPivot(['cantidad', 'vencimiento_id', 'precio_unitario'])->withTimestamps();
+        return $this->belongsToMany(Venta::class, 'venta_productos')
+                ->withPivot([
+                    'cantidad', 
+                    'precio_unitario', 
+                    'subtotal', 
+                    'fecha_vencimiento', 
+                    'fue_oferta', 
+                    'precio_oferta'
+                ])
+                ->withTimestamps();
     }
 
     public function departamento()
@@ -44,6 +53,22 @@ class Producto extends Model
     public function scopeDisponibles($query)
     {
         return $query->where('disponible', true);
+    }
+
+    // Relacion con ecommerce
+    public function ecommerce()
+    {
+        return $this->hasOne(ProductoEcommerce::class, 'producto_id');
+    }
+
+    public function imagenes()
+    {
+        return $this->hasMany(Imagen::class, 'producto_id')->orderBy('orden');
+    }
+
+    public function getStockTotalAttribute()
+    {
+        return $this->vencimientos()->sum('cantidad');
     }
 
 }

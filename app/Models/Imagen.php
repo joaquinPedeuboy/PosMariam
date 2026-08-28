@@ -12,7 +12,11 @@ class Imagen extends Model
 
     protected $table = 'imagenes';
 
-    protected $fillable = ['producto_id', 'url'];
+    protected $fillable = ['producto_id', 'url', 'orden', 'principal'];
+
+    protected $casts = [
+        'principal' => 'boolean',
+    ];
 
     public function producto()
     {

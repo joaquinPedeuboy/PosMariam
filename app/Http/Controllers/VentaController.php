@@ -117,13 +117,15 @@ class VentaController extends Controller
                             $ofertasAEliminar[] = $producto->ofertas->id;
                         }
 
-                        // Registrar los productos vendidos con la oferta
+                        // Guardar snapshot de la venta con oferta
                         $venta->productos()->attach($producto->id, [
                             'cantidad' => $cantidadOferta,
                             'nombre_producto' => $producto->nombre,
                             'precio_unitario' => $producto->ofertas->precio_oferta,
                             'subtotal' => $producto->ofertas->precio_oferta * $cantidadOferta,
-                            'vencimiento_id' => null,
+                            'fecha_vencimiento' => null,
+                            'fue_oferta' => true,
+                            'precio_oferta' => $producto->ofertas->precio_oferta,
                         ]);
                     }
 
@@ -150,13 +152,19 @@ class VentaController extends Controller
                                 $vencimientosAEliminar[] = $vencimiento->id;
                             }
 
+                            // Guardar snapshot de la venta con vencimiento
                             $venta->productos()->attach($producto->id, [
                                 'cantidad' => $aDescontar,
                                 'nombre_producto' => $producto->nombre,
                                 'precio_unitario' => $producto->precio,
                                 'subtotal' => $producto->precio * $aDescontar,
-                                'vencimiento_id' => $vencimiento->id,
+                                'fecha_vencimiento' => $vencimiento 
+                                    ? $vencimiento->fecha_vencimiento . '-01' 
+                                    : null,
+                                'fue_oferta' => false,
+                                'precio_oferta' => null,
                             ]);
+                            
                             $cantidadRestanteVencimientos -= $aDescontar;
                         }
                     }

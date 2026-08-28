@@ -1,0 +1,25 @@
+[90m= [39m[
+    "[34mid[39m" => [35m4[39m,
+    "[34mproducto_id[39m" => [35m4529[39m,
+    "[34mslug[39m" => "[32melvive-loreal-dream-long-sh-x-400[39m",
+    "[34mdescripcion[39m" => [36mnull[39m,
+    "[34mactivo[39m" => [36mtrue[39m,
+    "[34mdestacado[39m" => [36mfalse[39m,
+    "[34mprecio_online[39m" => [33m2.0[39m,
+    "[34mstock_maximo_web[39m" => [35m4[39m,
+    "[34mmeta_title[39m" => [36mnull[39m,
+    "[34mmeta_description[39m" => [36mnull[39m,
+    "[34mcreated_at[39m" => "[32m2026-08-04T18:50:29.000000Z[39m",
+    "[34mupdated_at[39m" => "[32m2026-08-12T21:08:28.000000Z[39m",
+    "[34mproducto[39m" => [
+      "[34mid[39m" => [35m4529[39m,
+      "[34mnombre[39m" => "[32mELVIVE LOREAL DREAM LONG SH X 400[39m",
+      "[34mcodigo_barras[39m" => "[32m7509552790191[39m",
+      "[34mprecio[39m" => [33m8900.0[39m,
+      "[34mcreated_at[39m" => "[32m2026-07-24[39m",
+      "[34mupdated_at[39m" => "[32m2026-08-04[39m",
+      "[34mdepartamento_id[39m" => [36mnull[39m,
+      "[34mdisponible[39m" => [35m0[39m,
+    ],
+  ]
+

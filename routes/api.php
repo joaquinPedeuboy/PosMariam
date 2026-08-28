@@ -1,27 +1,39 @@
 <?php
 
+use App\Http\Controllers\Api\CustomerAuthController;
+use App\Http\Controllers\Api\Storefront\CatalogController;
+use App\Http\Controllers\Api\Storefront\MercadoPagoWebhookController;
+use App\Http\Controllers\Api\Storefront\OrderController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\VentaController;
-use App\Http\Controllers\ImagenController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\DepartamentoController;
+use App\Http\Resources\UserResource;
 
 Route::middleware('auth:sanctum')->group(function() {
+
     Route::get('/user', function (Request $request) {
-        return $request->user();
+        return new UserResource($request->user());
     });
 
-    // Cierre de sesion
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    // Consulta de precios para clientes
+    Route::get('/consulta/productos', [ProductoController::class, 'consulta']);
+
+});
+
+Route::middleware(['auth:sanctum', 'admin', 'throttle:admin'])->group(function() {
 
     // Api productos
     Route::get('/productos/{producto}/vencimientos', [ProductoController::class, 'obtenerVencimientos']);
     Route::get('/productos/{producto}/oferta', [ProductoController::class, 'verOferta']);
     Route::post('/productos/{producto}/toggle-disponibilidad', [ProductoController::class, 'toggleDisponibilidad']);
     Route::get('/productos/buscar/{codigo}', [ProductoController::class, 'buscarPorCodigo']);
-    Route::get('pos/productos', [ProductoController::class, 'indexPos']);
+    Route::get('/pos/productos/{codigo}', [ProductoController::class, 'indexPos']);
+    Route::get('/productos/stock', [ProductoController::class, 'stockReporte']);
     Route::apiResource('/productos', ProductoController::class);
 
     // Departamentos
@@ -42,7 +54,37 @@ Route::middleware('auth:sanctum')->group(function() {
 
 // Autenticacion
 Route::post('/registro', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])
+    ->middleware('throttle:login');
 
 // Vista publica
-Route::get('/productos-public', [ProductoController::class, 'indexPublic']);
+Route::get('/productos-public', [ProductoController::class, 'indexPublic'])
+    ->middleware('throttle:60,1');
+
+// Rutas para storefront
+Route::prefix('store')->group(function () {
+    
+    // Rutas públicas de catálogo (sin autenticación)
+    Route::get('productos', [CatalogController::class, 'index']);
+    Route::get('productos/{slug}', [CatalogController::class, 'show']);
+    Route::get('categorias', [CatalogController::class, 'categorias']);
+
+    Route::post('register', [CustomerAuthController::class, 'register'])
+        ->middleware('throttle:login'); // reusa el rate limiter que ya tenías
+
+    Route::post('login', [CustomerAuthController::class, 'login'])
+        ->middleware('throttle:login');
+
+    Route::match(['get', 'post'], 'mercadopago/webhook', [MercadoPagoWebhookController::class, 'handle']);
+
+    Route::middleware(['auth:sanctum', 'customer'])->group(function () {
+        Route::post('logout', [CustomerAuthController::class, 'logout']);
+        Route::get('me', [CustomerAuthController::class, 'me']);
+        Route::post('orders', [OrderController::class, 'store']);
+        Route::get('orders', [OrderController::class, 'index']);
+        Route::get('orders/{order}', [OrderController::class, 'show']);
+        Route::post('orders/{order}/pagar', [OrderController::class, 'crearPreferenciaPago']);
+        Route::post('orders/{order}/cancelar', [OrderController::class, 'cancelar']);
+    });
+});
+

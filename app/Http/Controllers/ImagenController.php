@@ -11,18 +11,25 @@ use Illuminate\Support\Facades\Storage;
 
 class ImagenController extends Controller
 {
-    public function destroy(Imagen $imagen)
+    public function destroy(Request $request, Imagen $imagen)
     {
         try {
-            // Verificar si el archivo existe y eliminarlo
             if (Storage::disk('public')->exists($imagen->url)) {
-                // Eliminar el archivo de la carpeta 'uploads' usando Storage
                 Storage::disk('public')->delete($imagen->url);
             }
 
             $imagen->delete();
+
+            if ($request->header('X-Inertia')) {
+                return back()->with('success', 'Imagen eliminada correctamente');
+            }
+
             return response()->json(['message' => 'Imagen eliminada correctamente'], 200);
         } catch (\Exception $e) {
+            if ($request->header('X-Inertia')) {
+                return back()->with('error', 'Hubo un error al eliminar la imagen');
+            }
+
             return response()->json(['error' => 'Error al eliminar la imagen', 'details' => $e->getMessage()], 500);
         }
     }
