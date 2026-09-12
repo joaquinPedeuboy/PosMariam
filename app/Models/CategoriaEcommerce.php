@@ -11,7 +11,11 @@ class CategoriaEcommerce extends Model
     use HasFactory;
     
     protected $table = 'categorias_ecommerce';
-    protected $fillable = ['nombre', 'slug', 'categoria_padre_id', 'orden'];
+    protected $fillable = ['nombre', 'slug', 'categoria_padre_id', 'orden', 'mostrar_en_menu_principal'];
+
+    protected $casts = [
+        'mostrar_en_menu_principal' => 'boolean',
+    ];
 
     const MAX_PROFUNDIDAD = 4;
 
@@ -102,6 +106,7 @@ class CategoriaEcommerce extends Model
                     'nombre' => $cat->nombre,
                     'slug' => $cat->slug,
                     'orden' => $cat->orden,
+                    'mostrar_en_menu_principal' => $cat->mostrar_en_menu_principal,
                     'cantidad_productos' => $cat->productos_count ?? 0,
                     'hijos' => self::construirArbol($categorias, $cat->id),
                 ];

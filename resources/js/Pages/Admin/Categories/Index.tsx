@@ -7,6 +7,7 @@ interface CategoriaNodo {
     nombre: string;
     slug: string;
     orden: number;
+    mostrar_en_menu_principal: boolean;
     cantidad_productos: number;
     hijos: CategoriaNodo[];
 }

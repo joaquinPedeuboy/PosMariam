@@ -18,6 +18,7 @@ function Create({ categoriasPadre, categoriaPadreIdPreseleccionada }: Props) {
         slug: '',
         categoria_padre_id: categoriaPadreIdPreseleccionada ?? ('' as number | ''),
         orden: 0,
+        mostrar_en_menu_principal: false,
     });
 
     const submit: SubmitEventHandler<HTMLFormElement> = (e) => {
@@ -64,9 +65,17 @@ function Create({ categoriasPadre, categoriaPadreIdPreseleccionada }: Props) {
                     </label>
                     <select
                         value={data.categoria_padre_id}
-                        onChange={(e) =>
-                            setData('categoria_padre_id', e.target.value ? Number(e.target.value) : '')
-                        }
+                        onChange={(e) => {
+                            const valor = e.target.value
+                                ? Number(e.target.value)
+                                : '';
+
+                            setData('categoria_padre_id', valor);
+
+                            if (valor !== '') {
+                                setData('mostrar_en_menu_principal', false);
+                            }
+                        }}
                         className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm"
                     >
                         <option value="">Sin categoría padre</option>
@@ -78,6 +87,37 @@ function Create({ categoriasPadre, categoriaPadreIdPreseleccionada }: Props) {
                     </select>
                     {errors.categoria_padre_id && (
                         <p className="text-red-600 text-sm mt-1">{errors.categoria_padre_id}</p>
+                    )}
+                </div>
+
+                <div className="pt-2">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={data.mostrar_en_menu_principal}
+                            disabled={data.categoria_padre_id !== ''}
+                            onChange={(e) =>
+                                setData('mostrar_en_menu_principal', e.target.checked)
+                            }
+                            className="mt-1 h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400"
+                        />
+
+                        <div>
+                            <span className="block text-sm font-medium text-stone-700">
+                                Mostrar en el menú principal
+                            </span>
+
+                            <span className="block text-xs text-stone-500 mt-1">
+                                Solo las categorías principales pueden aparecer en el menú
+                                principal.
+                            </span>
+                        </div>
+                    </label>
+
+                    {errors.mostrar_en_menu_principal && (
+                        <p className="text-red-600 text-sm mt-1">
+                            {errors.mostrar_en_menu_principal}
+                        </p>
                     )}
                 </div>
 

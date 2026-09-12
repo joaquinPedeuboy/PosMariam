@@ -40,10 +40,12 @@ class CategoryAdminController extends Controller
             'slug' => 'nullable|string|unique:categorias_ecommerce,slug',
             'categoria_padre_id' => 'nullable|exists:categorias_ecommerce,id',
             'orden' => 'nullable|integer|min:0',
+            'mostrar_en_menu_principal' => 'boolean',
         ]);
 
         $validated['slug'] = $validated['slug'] ?: Str::slug($validated['nombre']);
         $validated['orden'] = $validated['orden'] ?? 0;
+        $validated['mostrar_en_menu_principal'] = $validated['mostrar_en_menu_principal'] ?? false;
 
         if (!empty($validated['categoria_padre_id'])) {
             $padre = CategoriaEcommerce::find($validated['categoria_padre_id']);
@@ -53,6 +55,34 @@ class CategoryAdminController extends Controller
                     'categoria_padre_id' => 'Se alcanzó la profundidad máxima de '
                         . CategoriaEcommerce::MAX_PROFUNDIDAD . ' niveles para esa rama.',
                 ])->withInput();
+            }
+        }
+
+        $mostrarEnMenu = (bool) ($validated['mostrar_en_menu_principal'] ?? false);
+
+        $esCategoriaPrincipal = empty($validated['categoria_padre_id']);
+
+        if ($mostrarEnMenu && !$esCategoriaPrincipal) {
+            return back()
+                ->withErrors([
+                    'mostrar_en_menu_principal' =>
+                        'Solo las categorías principales pueden aparecer en el menú principal.',
+                ])
+                ->withInput();
+        }
+
+        if ($mostrarEnMenu && $esCategoriaPrincipal) {
+            $cantidadSeleccionadas = CategoriaEcommerce::whereNull('categoria_padre_id')
+                ->where('mostrar_en_menu_principal', true)
+                ->count();
+
+            if ($cantidadSeleccionadas >= 8) {
+                return back()
+                    ->withErrors([
+                        'mostrar_en_menu_principal' =>
+                            'Ya hay 8 categorías seleccionadas para el menú principal.',
+                    ])
+                    ->withInput();
             }
         }
 
@@ -83,6 +113,7 @@ class CategoryAdminController extends Controller
             'slug' => 'required|string|unique:categorias_ecommerce,slug,' . $category->id,
             'categoria_padre_id' => 'nullable|exists:categorias_ecommerce,id',
             'orden' => 'nullable|integer|min:0',
+            'mostrar_en_menu_principal' => 'boolean',
         ]);
 
         if (!empty($validated['categoria_padre_id'])) {
@@ -107,6 +138,39 @@ class CategoryAdminController extends Controller
                     'categoria_padre_id' => 'Se alcanzó la profundidad máxima de '
                         . CategoriaEcommerce::MAX_PROFUNDIDAD . ' niveles para esa rama.',
                 ])->withInput();
+            }
+        }
+
+        $mostrarEnMenu = (bool) ($validated['mostrar_en_menu_principal'] ?? false);
+
+        $esCategoriaPrincipal = empty($validated['categoria_padre_id']);
+
+        if ($mostrarEnMenu && !$esCategoriaPrincipal) {
+            return back()
+                ->withErrors([
+                    'mostrar_en_menu_principal' =>
+                        'Solo las categorías principales pueden aparecer en el menú principal.',
+                ])
+                ->withInput();
+        }
+
+        if (
+            $mostrarEnMenu &&
+            !$category->mostrar_en_menu_principal &&
+            $esCategoriaPrincipal
+        ) {
+            $cantidadSeleccionadas = CategoriaEcommerce::whereNull('categoria_padre_id')
+                ->where('mostrar_en_menu_principal', true)
+                ->where('id', '!=', $category->id)
+                ->count();
+
+            if ($cantidadSeleccionadas >= 8) {
+                return back()
+                    ->withErrors([
+                        'mostrar_en_menu_principal' =>
+                            'Ya hay 8 categorías seleccionadas para el menú principal.',
+                    ])
+                    ->withInput();
             }
         }
 

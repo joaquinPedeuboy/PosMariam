@@ -133,6 +133,34 @@ class ProductoEcommerce extends Model
 
 
     /**
+     * La forma "de listado" del producto (card, favoritos, carruseles).
+     * Centralizado acá para no repetir el mismo mapeo en cada controller
+     * que necesita mostrar una lista de productos.
+     */
+    public function paraListado(): array
+    {
+        $imagenes = $this->producto->imagenes
+            ->sortByDesc('principal')
+            ->pluck('url')
+            ->values();
+
+        return [
+            'id' => $this->id,
+            'slug' => $this->slug,
+            'nombre' => $this->producto->nombre,
+            'precio' => $this->precio_final,
+            'precio_oferta' => $this->en_oferta ? $this->precio_oferta : null,
+            'precio_actual' => $this->precio_actual,
+            'en_oferta' => $this->en_oferta,
+            'porcentaje_descuento' => $this->porcentaje_descuento,
+            'stock' => $this->stock_web,
+            'imagen' => $imagenes->first(),
+            'imagenes' => $imagenes->toArray(),
+            'categorias' => $this->categorias->pluck('nombre'),
+        ];
+    }
+
+    /**
      * Arma la info de variantes (tamaños y colores del mismo grupo) para
      * mostrar el selector en el storefront. null si este producto no
      * pertenece a ningún grupo.

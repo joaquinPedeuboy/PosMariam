@@ -40,23 +40,16 @@ class CatalogController extends Controller
                 ->select('producto_ecommerce.*');
         }
 
+        if ($idsParam = $request->input('ids')) {
+            // Usado por la página de favoritos de invitados: el navegador
+            // guarda los ids en localStorage, y esto los resuelve a
+            // productos completos sin necesitar autenticación.
+            $ids = array_filter(array_map('intval', explode(',', $idsParam)));
+            $query->whereIn('producto_ecommerce.id', $ids);
+        }
+
         $productos = $query->paginate($request->input('per_page', 20))
-            ->through(fn (ProductoEcommerce $pe) => [
-                'id' => $pe->id,
-                'slug' => $pe->slug,
-                'nombre' => $pe->producto->nombre,
-                'precio' => $pe->precio_final,
-                'precio_oferta' => $pe->en_oferta ? $pe->precio_oferta : null,
-                'precio_actual' => $pe->precio_actual,
-                'en_oferta' => $pe->en_oferta,
-                'porcentaje_descuento' => $pe->porcentaje_descuento,
-                'stock' => $pe->stock_web,
-                'imagen' => optional(
-                    $pe->producto->imagenes->firstWhere('principal', true)
-                        ?? $pe->producto->imagenes->first()
-                )->url,
-                'categorias' => $pe->categorias->pluck('nombre'),
-            ]);
+            ->through(fn (ProductoEcommerce $pe) => $pe->paraListado());
 
         return response()->json($productos);
     }
@@ -92,16 +85,63 @@ class CatalogController extends Controller
             'variante_tamano' => $productoEcommerce->variante_tamano,
             'variante_color_nombre' => $productoEcommerce->variante_color_nombre,
             'variantes' => $productoEcommerce->variantesDisponibles(),
+            'relacionados' => $this->productosRelacionados($productoEcommerce),
         ]);
+    }
+
+    /**
+     * Productos que comparten al menos una categoría con el actual.
+     * Excluye al propio producto y a sus hermanos de variante (esos ya se
+     * ven en el selector de tamaño/color, no tiene sentido repetirlos acá).
+     */
+    private function productosRelacionados(ProductoEcommerce $productoEcommerce, int $limite = 8): array
+    {
+        $categoriaIds = $productoEcommerce->categorias->pluck('id');
+
+        if ($categoriaIds->isEmpty()) {
+            return [];
+        }
+
+        return ProductoEcommerce::where('activo', true)
+            ->where('id', '!=', $productoEcommerce->id)
+            ->whereHas('categorias', fn ($q) => $q->whereIn('categorias_ecommerce.id', $categoriaIds))
+            ->when(
+                $productoEcommerce->grupo_variante_id !== null,
+                fn ($q) => $q->where(function ($q2) use ($productoEcommerce) {
+                    $q2->whereNull('grupo_variante_id')
+                        ->orWhere('grupo_variante_id', '!=', $productoEcommerce->grupo_variante_id);
+                })
+            )
+            ->with(['producto.imagenes', 'categorias'])
+            ->inRandomOrder()
+            ->limit($limite)
+            ->get()
+            ->map(fn (ProductoEcommerce $pe) => $pe->paraListado())
+            ->values()
+            ->toArray();
     }
 
     public function categorias()
     {
-        // Traemos TODAS las categorías en una sola consulta (la tabla es
-        // chica) y armamos el árbol completo en memoria, sin importar
-        // cuántos niveles de profundidad tenga cada rama.
         $categorias = CategoriaEcommerce::orderBy('orden')->get();
 
-        return response()->json(CategoriaEcommerce::arbolPublico($categorias));
+        $arbol = CategoriaEcommerce::arbolPublico($categorias);
+
+        $menuPrincipal = $categorias
+            ->where('categoria_padre_id', null)
+            ->where('mostrar_en_menu_principal', true)
+            ->sortBy('orden')
+            ->take(8)
+            ->map(fn (CategoriaEcommerce $categoria) => [
+                'nombre' => $categoria->nombre,
+                'slug' => $categoria->slug,
+            ])
+            ->values()
+            ->toArray();
+
+        return response()->json([
+            'menu_principal' => $menuPrincipal,
+            'hamburguesa' => $arbol,
+        ]);
     }
 }

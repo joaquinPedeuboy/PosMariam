@@ -8,6 +8,7 @@ interface Categoria {
     slug: string;
     categoria_padre_id: number | null;
     orden: number;
+    mostrar_en_menu_principal: boolean;
 }
 
 interface CategoriaPadre {
@@ -26,6 +27,7 @@ function Edit({ categoria, categoriasPadre }: Props) {
         slug: categoria.slug,
         categoria_padre_id: categoria.categoria_padre_id ?? ('' as number | ''),
         orden: categoria.orden,
+        mostrar_en_menu_principal: categoria.mostrar_en_menu_principal,
     });
 
     const submit: SubmitEventHandler<HTMLFormElement> = (e) => {
@@ -66,12 +68,21 @@ function Edit({ categoria, categoriasPadre }: Props) {
                     </label>
                     <select
                         value={data.categoria_padre_id}
-                        onChange={(e) =>
-                            setData('categoria_padre_id', e.target.value ? Number(e.target.value) : '')
-                        }
+                        onChange={(e) => {
+                            const valor = e.target.value
+                                ? Number(e.target.value)
+                                : '';
+
+                            setData('categoria_padre_id', valor);
+
+                            if (valor !== '') {
+                                setData('mostrar_en_menu_principal', false);
+                            }
+                        }}
                         className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm"
                     >
                         <option value="">Sin categoría padre</option>
+
                         {categoriasPadre.map((cat) => (
                             <option key={cat.id} value={cat.id}>
                                 {cat.nombre}
@@ -80,6 +91,37 @@ function Edit({ categoria, categoriasPadre }: Props) {
                     </select>
                     {errors.categoria_padre_id && (
                         <p className="text-red-600 text-sm mt-1">{errors.categoria_padre_id}</p>
+                    )}
+                </div>
+
+                <div className="pt-2">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={data.mostrar_en_menu_principal}
+                            disabled={data.categoria_padre_id !== ''}
+                            onChange={(e) =>
+                                setData('mostrar_en_menu_principal', e.target.checked)
+                            }
+                            className="mt-1 h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400"
+                        />
+
+                        <div>
+                            <span className="block text-sm font-medium text-stone-700">
+                                Mostrar en el menú principal
+                            </span>
+
+                            <span className="block text-xs text-stone-500 mt-1">
+                                Solo las categorías principales pueden aparecer en el menú
+                                principal.
+                            </span>
+                        </div>
+                    </label>
+
+                    {errors.mostrar_en_menu_principal && (
+                        <p className="text-red-600 text-sm mt-1">
+                            {errors.mostrar_en_menu_principal}
+                        </p>
                     )}
                 </div>
 

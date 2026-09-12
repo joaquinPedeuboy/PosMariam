@@ -18,6 +18,7 @@ export interface Categoria {
     slug: string;
     categoria_padre_id: number | null;
     orden: number;
+    mostrar_en_menu_principal: boolean;
 }
 
 export interface Imagen {

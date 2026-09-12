@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\CustomerAuthController;
 use App\Http\Controllers\Api\Storefront\CatalogController;
+use App\Http\Controllers\Api\Storefront\FavoritoController;
 use App\Http\Controllers\Api\Storefront\MercadoPagoWebhookController;
 use App\Http\Controllers\Api\Storefront\OrderController;
 use Illuminate\Http\Request;
@@ -78,13 +79,19 @@ Route::prefix('store')->group(function () {
     Route::match(['get', 'post'], 'mercadopago/webhook', [MercadoPagoWebhookController::class, 'handle']);
 
     Route::middleware(['auth:sanctum', 'customer'])->group(function () {
+        
         Route::post('logout', [CustomerAuthController::class, 'logout']);
         Route::get('me', [CustomerAuthController::class, 'me']);
+
         Route::post('orders', [OrderController::class, 'store']);
         Route::get('orders', [OrderController::class, 'index']);
         Route::get('orders/{order}', [OrderController::class, 'show']);
         Route::post('orders/{order}/pagar', [OrderController::class, 'crearPreferenciaPago']);
         Route::post('orders/{order}/cancelar', [OrderController::class, 'cancelar']);
+
+        Route::get('favoritos', [FavoritoController::class, 'index']);
+        Route::post('favoritos/{productoEcommerce}', [FavoritoController::class, 'store']);
+        Route::delete('favoritos/{productoEcommerce}', [FavoritoController::class, 'destroy']);
     });
 });
 
