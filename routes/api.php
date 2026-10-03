@@ -12,6 +12,8 @@ use App\Http\Controllers\VentaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\DepartamentoController;
 use App\Http\Resources\UserResource;
+use App\Models\Customer;
+use Illuminate\Support\Facades\URL;
 
 Route::middleware('auth:sanctum')->group(function() {
 
@@ -82,16 +84,55 @@ Route::prefix('store')->group(function () {
         
         Route::post('logout', [CustomerAuthController::class, 'logout']);
         Route::get('me', [CustomerAuthController::class, 'me']);
+        Route::put('me', [CustomerAuthController::class, 'updateProfile']);
+        Route::put('me/email', [CustomerAuthController::class, 'updateEmail']);
+        Route::put('me/password', [CustomerAuthController::class, 'updatePassword']);
+        
+        Route::post('email/verification-notification', function (Request $request) { 
+            if ($request->user()->hasVerifiedEmail()) { 
+                return response()->json(
+                    [ 
+                        'message' => 'Tu email ya está verificado.', 
+                    ], 422); 
+                } 
+            $request->user()->sendEmailVerificationNotification(); 
 
-        Route::post('orders', [OrderController::class, 'store']);
+            return response()->json(
+                [ 
+                    'message' => 'Te enviamos un nuevo email de verificación.', 
+                ]); 
+        })->middleware('throttle:6,1');
+        
         Route::get('orders', [OrderController::class, 'index']);
         Route::get('orders/{order}', [OrderController::class, 'show']);
-        Route::post('orders/{order}/pagar', [OrderController::class, 'crearPreferenciaPago']);
-        Route::post('orders/{order}/cancelar', [OrderController::class, 'cancelar']);
+        
+        Route::middleware('verified')->group(function(){
+            Route::post('orders', [OrderController::class, 'store']);
+            Route::post('orders/{order}/pagar', [OrderController::class, 'crearPreferenciaPago']);
+            Route::post('orders/{order}/cancelar', [OrderController::class, 'cancelar']);
+        });
 
         Route::get('favoritos', [FavoritoController::class, 'index']);
         Route::post('favoritos/{productoEcommerce}', [FavoritoController::class, 'store']);
         Route::delete('favoritos/{productoEcommerce}', [FavoritoController::class, 'destroy']);
+
     });
 });
+
+// Ruta de envio de email
+Route::get('/email/verify/{id}/{hash}', function (Request $request, $id, $hash) { 
+    if (! URL::hasValidSignature($request)) { 
+        abort(403, 'El enlace de verificación no es válido o ha expirado.'); 
+    } 
+    $customer = Customer::findOrFail($id); 
+    if (! hash_equals(sha1($customer->email), $hash)) { 
+        abort(403, 'El enlace de verificación no es válido.'); 
+    } 
+    if ($customer->hasVerifiedEmail()) { 
+        return redirect(config('app.storefront_url') . '/email-verificado?estado=ya-verificado'); 
+    } 
+    $customer->markEmailAsVerified(); 
+    return redirect(config('app.storefront_url') . '/email-verificado?estado=verificado'); 
+})->middleware('throttle:6,1') 
+    ->name('verification.verify');
 

@@ -14,30 +14,130 @@ class CatalogController extends Controller
         $query = ProductoEcommerce::where('activo', true)
             ->with(['producto.imagenes', 'categorias']);
 
-        if ($categoriaSlug = $request->input('categoria')) {
-            $query->whereHas('categorias', function ($q) use ($categoriaSlug) {
-                $q->where('slug', $categoriaSlug);
-            });
+        $orden = $request->input('orden', 'relevancia');
+
+        $necesitaPrecio =
+            $request->boolean('en_oferta') ||
+            is_numeric($request->input('precio_min')) ||
+            is_numeric($request->input('precio_max')) ||
+            in_array($orden, ['precio_asc', 'precio_desc']);
+
+        if ($necesitaPrecio || $orden === 'nombre_asc') {
+            $query->join(
+                'productos',
+                'productos.id',
+                '=',
+                'producto_ecommerce.producto_id'
+            )
+            ->select('producto_ecommerce.*');
         }
 
-        if ($busqueda = $request->input('busqueda')) {
+        /*
+        |--------------------------------------------------------------------------
+        | Precio de lista y precio actual
+        |--------------------------------------------------------------------------
+        |
+        | Precio de lista:
+        | - precio_online si existe
+        | - productos.precio como fallback
+        |
+        | Precio actual:
+        | - precio_oferta si realmente es menor al precio de lista
+        | - precio de lista en caso contrario
+        |--------------------------------------------------------------------------
+        */
+        $precioLista = '
+            COALESCE(
+                producto_ecommerce.precio_online,
+                productos.precio
+            )
+        ';
+
+        $precioActual = "
+            CASE
+                WHEN producto_ecommerce.precio_oferta IS NOT NULL
+                    AND producto_ecommerce.precio_oferta < {$precioLista}
+                THEN producto_ecommerce.precio_oferta
+
+                ELSE {$precioLista}
+            END
+        ";
+
+        /*
+        |--------------------------------------------------------------------------
+        | Categoría
+        |--------------------------------------------------------------------------
+        |
+        | Al seleccionar una categoría padre también incluimos:
+        | hijas, nietas, bisnietas, etc.
+        |--------------------------------------------------------------------------
+        */
+
+        if ($categoriaSlug = $request->input('categoria')) {
+            $categoria = CategoriaEcommerce::where('slug', $categoriaSlug)
+            ->first();
+
+            if ($categoria) {
+                $categoriaIds = [
+                    $categoria->id,
+                    ...$categoria->todosLosDescendientesIds(),
+                ];
+
+                $query->whereHas('categorias', function ($q) use ($categoriaIds) {
+                    $q->whereIn('categorias_ecommerce.id', $categoriaIds);
+                });
+            }
+        }
+
+        if ($busqueda = trim($request->input('busqueda', ''))) {
             $query->whereHas('producto', function ($q) use ($busqueda) {
                 $q->where('nombre', 'like', "%{$busqueda}%");
             });
         }
 
         if ($request->boolean('destacados')) {
-            $query->where('destacado', true);
+                $query->where(
+                'producto_ecommerce.destacado',
+                true
+            );
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | En oferta
+        |--------------------------------------------------------------------------
+        | precio_oferta debe existir y ser menor al precio de lista real.
+        |
+        | El precio de lista real es:
+        | precio_online, si existe
+        | o productos.precio como fallback.
+        |--------------------------------------------------------------------------
+        */
         if ($request->boolean('en_oferta')) {
-            // El precio "de lista" real cae a producto.precio si no hay
-            // precio_online cargado — el filtro tiene que respetar ese
-            // mismo fallback, o si no quedarían afuera ofertas válidas.
-            $query->join('productos', 'productos.id', '=', 'producto_ecommerce.producto_id')
-                ->whereNotNull('producto_ecommerce.precio_oferta')
-                ->whereRaw('producto_ecommerce.precio_oferta < COALESCE(producto_ecommerce.precio_online, productos.precio)')
-                ->select('producto_ecommerce.*');
+            $query->whereNotNull(
+                'producto_ecommerce.precio_oferta'
+            )
+            ->whereRaw(
+                "producto_ecommerce.precio_oferta < {$precioLista}"
+            );
+        }
+        /*
+        |--------------------------------------------------------------------------
+        | Precio
+        |--------------------------------------------------------------------------
+        */
+        if (is_numeric($request->input('precio_min'))) {
+            $query->whereRaw(
+                "{$precioActual} >= ?",
+                [(float) $request->input('precio_min')]
+            );
+        }
+
+        if (is_numeric($request->input('precio_max'))) {
+            $query->whereRaw(
+                "{$precioActual} <= ?",
+                [(float) $request->input('precio_max')]
+            );
         }
 
         if ($idsParam = $request->input('ids')) {
@@ -48,7 +148,71 @@ class CatalogController extends Controller
             $query->whereIn('producto_ecommerce.id', $ids);
         }
 
-        $productos = $query->paginate($request->input('per_page', 20))
+        /*
+        |--------------------------------------------------------------------------
+        | Ordenamiento
+        |--------------------------------------------------------------------------
+        */
+        $orden = $request->input('orden', 'relevancia');
+
+        switch ($orden) {
+
+            case 'precio_asc':
+
+                $query->orderByRaw(
+                    "{$precioActual} ASC"
+                );
+
+                break;
+
+            case 'precio_desc':
+
+                $query->orderByRaw(
+                    "{$precioActual} DESC"
+                );
+
+                break;
+
+            case 'nombre_asc':
+
+                $query->orderBy(
+                    'productos.nombre',
+                    'asc'
+                );
+
+                break;
+
+            case 'nuevos':
+
+                $query->orderByDesc(
+                    'producto_ecommerce.created_at'
+                );
+
+                break;
+
+            case 'relevancia':
+            default:
+
+                $query->orderByDesc(
+                    'producto_ecommerce.destacado'
+                )
+                ->orderByDesc(
+                    'producto_ecommerce.created_at'
+                );
+
+                break;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Paginación
+        |--------------------------------------------------------------------------
+        */
+        $perPage = min(
+            max((int) $request->input('per_page', 20), 1),
+            100
+        );
+        $productos = $query->paginate($perPage)
             ->through(fn (ProductoEcommerce $pe) => $pe->paraListado());
 
         return response()->json($productos);
@@ -127,15 +291,20 @@ class CatalogController extends Controller
 
         $arbol = CategoriaEcommerce::arbolPublico($categorias);
 
-        $menuPrincipal = $categorias
-            ->where('categoria_padre_id', null)
+        $idsMenuPrincipal = $categorias
+            ->whereNull('categoria_padre_id')
             ->where('mostrar_en_menu_principal', true)
             ->sortBy('orden')
             ->take(8)
-            ->map(fn (CategoriaEcommerce $categoria) => [
-                'nombre' => $categoria->nombre,
-                'slug' => $categoria->slug,
-            ])
+            ->pluck('id')
+            ->toArray();
+
+        $menuPrincipal = collect($arbol)
+            ->filter(function ($categoria) use ($categorias, $idsMenuPrincipal) {
+                return $categorias
+                    ->whereIn('id', $idsMenuPrincipal)
+                    ->contains('slug', $categoria['slug']);
+            })
             ->values()
             ->toArray();
 
