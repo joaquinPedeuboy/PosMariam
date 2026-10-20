@@ -17,12 +17,23 @@ class MercadoPagoService
     public function crearPreferencia(Order $order): array
     {
         $storefrontUrl = rtrim(config('app.storefront_url'), '/');
+
         $items = $order->items->map(fn ($item) => [
             'title' => $item->nombre_producto,
-            'quantity' => $item->cantidad,
+            'quantity' => (int) $item->cantidad,
             'unit_price' => (float) $item->precio_unitario,
             'currency_id' => 'ARS',
         ])->toArray();
+
+        // El envío también forma parte del importe que debe pagar el cliente.
+        if ((float) $order->costo_envio > 0) {
+            $items[] = [
+                'title' => 'Costo de envío',
+                'quantity' => 1,
+                'unit_price' => (float) $order->costo_envio,
+                'currency_id' => 'ARS',
+            ];
+        }
         
         $client = new PreferenceClient();
         

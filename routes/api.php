@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\CustomerAuthController;
 use App\Http\Controllers\Api\Storefront\CatalogController;
+use App\Http\Controllers\Api\Storefront\CustomerAddressController;
 use App\Http\Controllers\Api\Storefront\FavoritoController;
 use App\Http\Controllers\Api\Storefront\MercadoPagoWebhookController;
 use App\Http\Controllers\Api\Storefront\OrderController;
@@ -95,12 +96,17 @@ Route::prefix('store')->group(function () {
                         'message' => 'Tu email ya está verificado.', 
                     ], 422); 
                 } 
-            $request->user()->sendEmailVerificationNotification(); 
+            $redirect = $request->input('redirect', '/mi-cuenta'); 
 
-            return response()->json(
-                [ 
-                    'message' => 'Te enviamos un nuevo email de verificación.', 
-                ]); 
+            if (! in_array($redirect, ['/mi-cuenta', '/checkout'], true)) {
+                $redirect = '/mi-cuenta';
+            }
+
+            $request->user()->sendEmailVerificationNotification($redirect);
+
+            return response()->json([ 
+                'message' => 'Te enviamos un nuevo email de verificación.', 
+            ]); 
         })->middleware('throttle:6,1');
         
         Route::get('orders', [OrderController::class, 'index']);
@@ -116,6 +122,15 @@ Route::prefix('store')->group(function () {
         Route::post('favoritos/{productoEcommerce}', [FavoritoController::class, 'store']);
         Route::delete('favoritos/{productoEcommerce}', [FavoritoController::class, 'destroy']);
 
+        // Direcciones del cliente
+        Route::get('addresses', [CustomerAddressController::class, 'index']);
+        Route::post('addresses', [CustomerAddressController::class, 'store']);
+        Route::put('addresses/{id}', [CustomerAddressController::class, 'update']);
+        Route::patch('addresses/{id}', [CustomerAddressController::class, 'update']);
+        Route::delete('addresses/{id}', [CustomerAddressController::class, 'destroy']);
+
+        Route::post('shipping/quote',[OrderController::class, 'cotizarEnvio']);
+
     });
 });
 
@@ -124,15 +139,40 @@ Route::get('/email/verify/{id}/{hash}', function (Request $request, $id, $hash) 
     if (! URL::hasValidSignature($request)) { 
         abort(403, 'El enlace de verificación no es válido o ha expirado.'); 
     } 
+
     $customer = Customer::findOrFail($id); 
+
     if (! hash_equals(sha1($customer->email), $hash)) { 
         abort(403, 'El enlace de verificación no es válido.'); 
     } 
+
+    $redirect = $request->query('redirect', '/mi-cuenta');
+
+    if (! in_array($redirect, ['/mi-cuenta', '/checkout'], true)) {
+        $redirect = '/mi-cuenta';
+    }
+
     if ($customer->hasVerifiedEmail()) { 
-        return redirect(config('app.storefront_url') . '/email-verificado?estado=ya-verificado'); 
+        return redirect(
+            config('app.storefront_url')
+            . '/email-verificado?'
+            . http_build_query([
+                'estado' => 'ya-verificado',
+                'redirect' => $redirect,
+            ])
+        ); 
     } 
+
     $customer->markEmailAsVerified(); 
-    return redirect(config('app.storefront_url') . '/email-verificado?estado=verificado'); 
+
+    return redirect(
+        config('app.storefront_url')
+        . '/email-verificado?'
+        . http_build_query([
+            'estado' => 'verificado',
+            'redirect' => $redirect,
+        ])
+    ); 
 })->middleware('throttle:6,1') 
     ->name('verification.verify');
 

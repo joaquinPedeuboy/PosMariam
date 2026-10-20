@@ -2,72 +2,153 @@
 
 namespace App\Services;
 
+use App\Enums\OrderStatus;
+use App\Models\Oferta;
 use App\Models\Order;
 use App\Models\OrderItemStockMovement;
+use App\Models\OrderStockReservation;
 use App\Models\ProductoVencimiento;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 class OrderCancellationService
 {
-    /**
-     * Reglas de cuándo un pedido puede cancelarse. Las usan tanto el admin
-     * como el endpoint del cliente en el storefront, para que ambos lados
-     * apliquen exactamente la misma regla y no se desincronicen.
-     */
     public function puedeCancelarse(Order $order): bool
     {
-        $estadoCancelable = in_array($order->estado->value, ['pendiente_pago', 'pagado'], true);
+        $estadoCancelable = in_array(
+            $order->estado->value,
+            [
+                OrderStatus::PendientePago->value,
+                OrderStatus::Pagado->value,
+            ],
+            true
+        );
 
         $envioYaEnCurso = $order->estado_envio
-            && in_array($order->estado_envio->value, ['enviado', 'entregado'], true);
+            && in_array(
+                $order->estado_envio->value,
+                ['enviado', 'entregado'],
+                true
+            );
 
         return $estadoCancelable && !$envioYaEnCurso;
     }
 
-    /**
-     * Cancela el pedido. Si estaba pagado, repone el stock exacto a los
-     * lotes de donde salió (usando order_item_stock_movements).
-     *
-     * Vuelve a chequear las reglas con el registro bloqueado (lockForUpdate)
-     * dentro de la transacción, por si el webhook de Mercado Pago confirma
-     * el pago justo en el mismo instante en que se está cancelando.
-     *
-     * @throws \RuntimeException si el pedido ya no puede cancelarse.
-     */
     public function cancelar(Order $order): Order
     {
         return DB::transaction(function () use ($order) {
-            $order = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $orden = Order::query()
+                ->whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            if (!$this->puedeCancelarse($order)) {
-                throw new \RuntimeException('Este pedido ya no puede cancelarse en su estado actual.');
+            if (!$this->puedeCancelarse($orden)) {
+                throw new RuntimeException(
+                    'Esta orden no se puede cancelar.'
+                );
             }
 
-            $estabaPagado = $order->estado->value === 'pagado';
+            $estabaPagada =
+                $orden->estado === OrderStatus::Pagado;
 
-            if ($estabaPagado) {
-                $this->reponerStock($order);
+            $orden->load('items');
+
+            if ($estabaPagada) {
+                $this->reponerStock($orden);
+            } else {
+                $this->liberarReservas($orden);
             }
 
-            $order->estado = 'cancelado';
-            $order->estado_envio = null;
-            $order->cancelado_at = now();
-            $order->save();
+            $orden->estado = OrderStatus::Cancelado;
+            $orden->estado_envio = null;
+            $orden->cancelado_at = now();
+            $orden->save();
 
-            return $order;
+            return $orden;
         });
     }
 
-    private function reponerStock(Order $order): void
+    /**
+     * Las órdenes pendientes no han descontado stock físico.
+     * Solo liberamos sus reservas activas.
+     */
+    private function liberarReservas(Order $orden): void
     {
-        foreach ($order->items as $item) {
-            $movimientos = OrderItemStockMovement::where('order_item_id', $item->id)->get();
+        $reservas = OrderStockReservation::query()
+            ->whereHas('orderItem', function ($query) use ($orden) {
+                $query->where('order_id', $orden->id);
+            })
+            ->where(
+                'estado',
+                OrderStockReservation::ESTADO_ACTIVA
+            )
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($reservas as $reserva) {
+            $reserva->update([
+                'estado' => OrderStockReservation::ESTADO_LIBERADA,
+            ]);
+        }
+    }
+
+    /**
+     * Repone el stock que realmente se descontó al pagar.
+     */
+    private function reponerStock(Order $orden): void
+    {
+        foreach ($orden->items as $item) {
+            // Reponer lotes normales usando los movimientos registrados.
+            $movimientos = OrderItemStockMovement::query()
+                ->where('order_item_id', $item->id)
+                ->lockForUpdate()
+                ->get();
 
             foreach ($movimientos as $movimiento) {
-                if ($movimiento->producto_vencimiento_id) {
-                    ProductoVencimiento::whereKey($movimiento->producto_vencimiento_id)
-                        ->increment('cantidad', $movimiento->cantidad);
+                $lote = ProductoVencimiento::query()
+                    ->whereKey($movimiento->producto_vencimiento_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$lote) {
+                    throw new RuntimeException(
+                        "No se encontró el lote {$movimiento->producto_vencimiento_id} para reponer stock."
+                    );
                 }
+
+                $lote->increment(
+                    'cantidad',
+                    $movimiento->cantidad
+                );
+            }
+
+            // Reponer las unidades de oferta consumidas por este artículo.
+            $reservasOferta = OrderStockReservation::query()
+                ->where('order_item_id', $item->id)
+                ->whereNotNull('oferta_id')
+                ->where(
+                    'estado',
+                    OrderStockReservation::ESTADO_CONSUMIDA
+                )
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($reservasOferta as $reserva) {
+                $oferta = Oferta::query()
+                    ->whereKey($reserva->oferta_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$oferta) {
+                    throw new RuntimeException(
+                        "No se encontró la oferta {$reserva->oferta_id} para reponer stock."
+                    );
+                }
+
+                $oferta->increment(
+                    'cantidad',
+                    $reserva->cantidad
+                );
             }
         }
     }

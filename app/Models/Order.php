@@ -16,7 +16,9 @@ class Order extends Model
         'ciudad', 'provincia', 'codigo_postal',
         'mercado_pago_preference_id', 'mercado_pago_payment_id', 'pagado_at',
         'estado_envio', 'transportista', 'numero_seguimiento',
-        'enviado_at', 'entregado_at', 'cancelado_at',
+        'enviado_at', 'entregado_at', 'cancelado_at','metodo_entrega',
+        'costo_envio', 'customer_address_id', 'tipo_domicilio', 'calle',
+        'numero_calle', 'piso', 'departamento', 'torre_edificio', 'informacion_adicional',
     ];
 
     protected $casts = [
@@ -58,5 +60,13 @@ class Order extends Model
         } while (self::where('numero_seguimiento', $numero)->exists());
         
         return $numero;
+    }
+
+    public function customerAddress()
+    {
+        return $this->belongsTo(
+            CustomerAddress::class,
+            'customer_address_id'
+        );
     }
 }

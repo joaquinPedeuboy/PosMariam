@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CustomerLoginRequest;
 use App\Http\Requests\CustomerRegisterRequest;
 use App\Models\Customer;
-use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -27,9 +26,15 @@ class CustomerAuthController extends Controller
             'telefono' => $validated['telefono'] ?? null,
         ]);
 
-        $token = $customer->createToken('storefront')->plainTextToken;
+        $redirect = $request->input('redirect', '/mi-cuenta');
 
-        event(new Registered($customer));
+        if (! in_array($redirect, ['/mi-cuenta', '/checkout'], true)) {
+            $redirect = '/mi-cuenta';
+        }
+
+        $customer->sendEmailVerificationNotification($redirect);
+
+        $token = $customer->createToken('storefront')->plainTextToken;
 
         return response()->json([
             'customer' => $customer,

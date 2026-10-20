@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -13,7 +14,7 @@ class ProductoEcommerce extends Model
 
     protected $fillable = [
         'producto_id', 'slug', 'descripcion', 'activo', 'destacado',
-        'precio_online', 'precio_oferta', 'stock_maximo_web',
+        'precio_online', 'precio_oferta', 'stock_maximo_web', 'stock_maximo_web_oferta',
         'meta_title', 'meta_description',
         'grupo_variante_id', 'variante_tamano', 'variante_color_nombre', 'variante_color_hex',
     ];
@@ -21,6 +22,8 @@ class ProductoEcommerce extends Model
     protected $casts = [
         'activo' => 'boolean',
         'destacado' => 'boolean',
+        'stock_maximo_web' => 'integer',
+        'stock_maximo_web_oferta' => 'integer',
     ];
 
     protected static function boot()
@@ -76,27 +79,34 @@ class ProductoEcommerce extends Model
     }
 
     // Precio de lista (sin descuento), el mismo cálculo de siempre.
+    // Si no hay precio online configurado, usa el precio del POS.
     public function getPrecioFinalAttribute()
     {
         return $this->precio_online ?? $this->producto->precio;
     }
 
     /**
-     * True solo si hay un precio de oferta cargado Y es efectivamente más
-     * barato que el precio de lista. Evita mostrar una "oferta" que en
-     * realidad no descuenta nada (por un precio_oferta mal cargado, o
-     * un precio_online que bajó después y quedó por debajo de la oferta).
+     * Determina si el precio promocional es válido.
+     * No implica que haya unidades promocionales disponibles.
      */
-    public function getEnOfertaAttribute(): bool
+    public function getTienePrecioOfertaValidoAttribute(): bool
     {
-        return $this->precio_oferta !== null && (float) $this->precio_oferta < $this->precio_final;
+        return $this->precio_oferta !== null
+            && (float) $this->precio_oferta < (float) $this->precio_final;
     }
 
     /**
-     * El precio que realmente se cobra: el de oferta si aplica, si no el
-     * de lista. Esto es lo que hay que usar en el checkout, NUNCA
-     * precio_final directo, o el descuento que se muestra en la web sería
-     * mentira (se vería tachado pero se cobraría el precio de lista igual).
+     * Indica si hay unidades promocionales que se pueden vender online
+     * y si el precio promocional es válido.
+     */
+    public function getEnOfertaAttribute(): bool
+    {
+        return $this->tiene_precio_oferta_valido
+            && $this->stock_oferta_disponible > 0;
+    }
+
+    /**
+     * Precio que corresponde a la fuente de stock disponible.
      */
     public function getPrecioActualAttribute()
     {
@@ -110,7 +120,7 @@ class ProductoEcommerce extends Model
      */
     public function getPorcentajeDescuentoAttribute(): ?int
     {
-        if (!$this->en_oferta) {
+        if (!$this->en_oferta || (float) $this->precio_final <= 0) {
             return null;
         }
 
@@ -119,18 +129,162 @@ class ProductoEcommerce extends Model
         return (int) round($descuento * 100);
     }
 
-    // Stock que se muestra en la web, respetando el tope si existe
-    public function getStockWebAttribute()
+    /**
+     * Devuelve la consulta de reservas que siguen activas
+     * y cuya fecha de expiración todavía no pasó.
+     */
+    private function reservasActivasQuery(): Builder
     {
-        $stockReal = (int) $this->producto->stock_total;
-
-        if ($this->stock_maximo_web === null) {
-            return $stockReal;
-        }
-
-        return min($stockReal, (int) $this->stock_maximo_web);
+        return OrderStockReservation::query()
+            ->where(
+                'estado',
+                OrderStockReservation::ESTADO_ACTIVA
+            )
+            ->where(function (Builder $query) {
+                $query->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            });
     }
 
+    /**
+     * Cantidad de unidades de una oferta reservadas por pedidos.
+     */
+    private function cantidadReservadaOferta(int $ofertaId): int
+    {
+        return (int) $this->reservasActivasQuery()
+            ->where('oferta_id', $ofertaId)
+            ->sum('cantidad');
+    }
+
+    /**
+     * Cantidad de unidades de stock normal reservadas por pedidos.
+     */
+    private function cantidadReservadaStockNormal(): int
+    {
+        $productoId = $this->producto_id;
+
+        return (int) $this->reservasActivasQuery()
+            ->whereHas(
+                'productoVencimiento',
+                function (Builder $query) use ($productoId) {
+                    $query->where('producto_id', $productoId);
+                }
+            )
+            ->sum('cantidad');
+    }
+
+    // Disponibilidad de ofertas
+
+    /**
+     * Unidades promocionales físicamente disponibles,
+     * descontando las reservas activas.
+     *
+     * No aplica el límite web en este cálculo.
+     */
+    public function getStockOfertaFisicoDisponibleAttribute(): int
+    {
+        $oferta = $this->producto->ofertas;
+
+        if (!$oferta) {
+            return 0;
+        }
+
+        $reservado = $this->cantidadReservadaOferta(
+            (int) $oferta->id
+        );
+
+        return max(
+            0,
+            (int) $oferta->cantidad - $reservado
+        );
+    }
+
+    /**
+     * Unidades promocionales vendibles online.
+     *
+     * Aplica el límite independiente de ofertas. Si es null,
+     * no existe un límite adicional de stock web.
+     */
+    public function getStockOfertaDisponibleAttribute(): int
+    {
+        $stockFisicoDisponible = $this->stock_oferta_fisico_disponible;
+
+        if ($this->stock_maximo_web_oferta === null) {
+            return $stockFisicoDisponible;
+        }
+
+        $oferta = $this->producto->ofertas;
+
+        if (!$oferta) {
+            return 0;
+        }
+
+        $reservado = $this->cantidadReservadaOferta(
+            (int) $oferta->id
+        );
+
+        return max(
+            0,
+            min(
+                $stockFisicoDisponible,
+                (int) $this->stock_maximo_web_oferta - $reservado
+            )
+        );
+    }
+
+    // Disponibilidad de stock normal
+
+    /**
+     * Stock normal físicamente disponible, antes de aplicar
+     * el límite de unidades vendibles por internet.
+     */
+    public function getStockNormalFisicoDisponibleAttribute(): int
+    {
+        $stockReal = (int) $this->producto->stock_total;
+        $reservado = $this->cantidadReservadaStockNormal();
+
+        return max(0, $stockReal - $reservado);
+    }
+
+    /**
+     * Stock normal vendible online.
+     *
+     * Respeta tanto el stock físico restante como el límite web.
+     * Las reservas activas descuentan unidades de ambos límites.
+     */
+    public function getStockNormalDisponibleAttribute(): int
+    {
+        $stockFisicoDisponible = $this->stock_normal_fisico_disponible;
+
+        if ($this->stock_maximo_web === null) {
+            return $stockFisicoDisponible;
+        }
+
+        $reservado = $this->cantidadReservadaStockNormal();
+
+        return max(
+            0,
+            min(
+                $stockFisicoDisponible,
+                (int) $this->stock_maximo_web - $reservado
+            )
+        );
+    }
+
+    /**
+     * Stock vendible que se muestra en la tienda.
+     *
+     * Si hay oferta disponible, devuelve exclusivamente el stock
+     * de oferta. Si no, devuelve el stock normal.
+     */
+    public function getStockWebAttribute(): int
+    {
+        if ($this->en_oferta) {
+            return $this->stock_oferta_disponible;
+        }
+
+        return $this->stock_normal_disponible;
+    }
 
     /**
      * La forma "de listado" del producto (card, favoritos, carruseles).
@@ -143,17 +297,24 @@ class ProductoEcommerce extends Model
             ->sortByDesc('principal')
             ->pluck('url')
             ->values();
+            
+        $enOferta = $this->en_oferta;
+        $precioFinal = $this->precio_final;
 
         return [
             'id' => $this->id,
             'slug' => $this->slug,
             'nombre' => $this->producto->nombre,
             'precio' => $this->precio_final,
-            'precio_oferta' => $this->en_oferta ? $this->precio_oferta : null,
-            'precio_actual' => $this->precio_actual,
-            'en_oferta' => $this->en_oferta,
-            'porcentaje_descuento' => $this->porcentaje_descuento,
-            'stock' => $this->stock_web,
+            'precio_oferta' => $enOferta ? $this->precio_oferta : null,
+            'precio_actual' => $enOferta ? (float) $this->precio_oferta : $precioFinal,
+            'en_oferta' => $enOferta,
+            'porcentaje_descuento' => $enOferta
+                ? $this->porcentaje_descuento
+                : null,
+            'stock' => $enOferta
+                ? $this->stock_oferta_disponible
+                : $this->stock_normal_disponible,
             'imagen' => $imagenes->first(),
             'imagenes' => $imagenes->toArray(),
             'categorias' => $this->categorias->pluck('nombre'),

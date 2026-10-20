@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class OrderItem extends Model
 {
@@ -24,5 +25,10 @@ class OrderItem extends Model
     public function producto()
     {
         return $this->belongsTo(Producto::class);
+    }
+
+    public function reservasStock(): HasMany
+    {
+        return $this->hasMany(OrderStockReservation::class);
     }
 }

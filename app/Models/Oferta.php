@@ -16,8 +16,4 @@ class Oferta extends Model
         return $this->belongsTo(Producto::class);
     }
 
-    // public function isAvailable($cantidad)
-    // {
-    //     return $this->cantidad >= $cantidad; // Verifica si hay suficiente cantidad en oferta
-    // }
 }
